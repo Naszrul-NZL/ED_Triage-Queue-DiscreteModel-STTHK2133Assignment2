@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Emergency Department Triage Simulator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Discrete Event Model</p>
+        <h1>Emergency Department Triage Simulator</h1>
+      </div>
+      <div class="status-strip" aria-label="Model indicators">
+        <span>ESI mapping</span>
+        <span>SoftMax assignment</span>
+        <span>Queue feedback</span>
+      </div>
+    </header>
+
+    <section class="control-grid" aria-label="Simulation controls">
+      <div class="panel">
+        <div class="panel-heading">
+          <h2>Patient Input</h2>
+          <p>Choose preset data or enter patient records.</p>
+        </div>
+
+        <div class="segmented-control" role="radiogroup" aria-label="Patient data source">
+          <label>
+            <input type="radio" name="data-source" value="preset" checked>
+            <span>Preset Data</span>
+          </label>
+          <label>
+            <input type="radio" name="data-source" value="custom">
+            <span>Custom Data</span>
+          </label>
+        </div>
+
+        <div class="preset-actions" id="presetActions">
+          <button type="button" class="primary-button" id="loadPresetBtn">Load Preset Patients</button>
+          <button type="button" class="ghost-button" id="resetBtn">Reset Simulation</button>
+        </div>
+
+        <form class="patient-form hidden" id="patientForm">
+          <div class="form-grid">
+            <label>
+              Severity Score
+              <input type="number" id="severityInput" min="0" max="10" step="0.1" value="5.5" required>
+            </label>
+            <label>
+              Respiratory Risk
+              <select id="respiratoryInput">
+                <option value="0">None</option>
+                <option value="0.7">Mild</option>
+                <option value="1.4">Moderate</option>
+                <option value="2">Severe</option>
+              </select>
+            </label>
+            <label>
+              Vital Sign Risk
+              <select id="vitalInput">
+                <option value="0">Stable</option>
+                <option value="0.8">Watch</option>
+                <option value="1.6">Unstable</option>
+                <option value="2.4">Critical</option>
+              </select>
+            </label>
+            <label>
+              Warning Indicator
+              <select id="warningInput">
+                <option value="0">No</option>
+                <option value="1.2">Yes</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary-button">Add Patient</button>
+            <button type="button" class="ghost-button" id="clearPatientsBtn">Clear Patients</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-heading">
+          <h2>Unit Setup</h2>
+          <p>Capacity, service rate, and initial waiting time.</p>
+        </div>
+        <div class="unit-config" id="unitConfig"></div>
+      </div>
+
+      <div class="panel model-panel">
+        <div class="panel-heading">
+          <h2>Model Weights</h2>
+          <p>Adjust how urgency and congestion affect assignment.</p>
+        </div>
+        <div class="slider-row">
+          <label for="severityWeight">Severity weight</label>
+          <input type="range" id="severityWeight" min="0.2" max="2" step="0.1" value="1.1">
+          <output id="severityWeightOut">1.1</output>
+        </div>
+        <div class="slider-row">
+          <label for="waitWeight">Waiting penalty</label>
+          <input type="range" id="waitWeight" min="0.1" max="1.5" step="0.1" value="0.5">
+          <output id="waitWeightOut">0.5</output>
+        </div>
+        <div class="slider-row">
+          <label for="deteriorationRate">Deterioration rate</label>
+          <input type="range" id="deteriorationRate" min="0" max="1" step="0.05" value="0.3">
+          <output id="deteriorationRateOut">0.30</output>
+        </div>
+      </div>
+    </section>
+
+    <section class="summary-grid" aria-label="Simulation summary">
+      <article class="metric-card">
+        <span>Total Patients</span>
+        <strong id="totalPatients">0</strong>
+      </article>
+      <article class="metric-card">
+        <span>Critical Cases</span>
+        <strong id="criticalPatients">0</strong>
+      </article>
+      <article class="metric-card">
+        <span>Most Congested Unit</span>
+        <strong id="congestedUnit">None</strong>
+      </article>
+      <article class="metric-card">
+        <span>Deteriorated Patients</span>
+        <strong id="deterioratedPatients">0</strong>
+      </article>
+    </section>
+
+    <section class="results-grid">
+      <div class="panel wide-panel">
+        <div class="panel-heading">
+          <h2>Patient Assignment Results</h2>
+          <p>Patients are automatically labeled as Patient 1, Patient 2, and so on.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Patient</th>
+                <th>Severity</th>
+                <th>ESI</th>
+                <th>ICU</th>
+                <th>ER</th>
+                <th>Fast Track</th>
+                <th>Assigned Unit</th>
+                <th>Wait</th>
+                <th>Updated Severity</th>
+                <th>Updated ESI</th>
+              </tr>
+            </thead>
+            <tbody id="patientTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-heading">
+          <h2>Queue Status</h2>
+          <p>Arrival count, service rate, waiting time, and congestion.</p>
+        </div>
+        <div class="queue-list" id="queueList"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

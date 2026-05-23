@@ -1,1 +1,0 @@
-# ED_Triage-Queue-DiscreteModel-STTHK2133Assignment2
