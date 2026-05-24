@@ -1,28 +1,26 @@
-# Emergency Department Triage Simulator
+# Emergency Department Triage Time-Step Simulation
 
-This is a static web application for the Modeling and Simulation emergency department triage case study.
+Static GitHub Pages web app for the STTHK2133 ED triage assignment.
 
-## Files
+## Source Files
 
-- `index.html` - page structure and patient input interface
-- `styles.css` - dark blue and dark purple visual theme
-- `script.js` - ESI mapping, SoftMax assignment, queue calculation, waiting time, and severity update logic
+- `index.html` - page structure
+- `styles.css` - dark blue and dark purple interface theme
+- `script.js` - simulation logic
 
-## Features
+## Model Used
 
-- Preset patient data option
-- Custom patient data option
-- Patient labels are anonymized as Patient 1, Patient 2, Patient 3, and so on
-- ESI level conversion from severity score
-- ICU, ER, and Fast Track probability assignment
-- Queue congestion and waiting time calculation
-- Severity deterioration update after waiting
+- Fixed initial patient cohort, no continuous arrivals
+- One simulation tick equals one hour
+- ICU: capacity 2, service rate 1 patient/hour
+- ER: capacity 3, service rate 3 patients/hour
+- Fast Track: capacity 4, service rate 6 patients/hour
+- Utility: `U*ij = (alpha x Si + beta x Wj) - gamma x (nj / Cj)`
+- Constants: `alpha = 0.6`, `beta = -0.4`, `gamma = 0.5`, `delta = 0.1`
+- SoftMax assignment with argmax selection
+- Waiting time: `Wq = nj / muj`
+- Deterioration: `St = Sinitial + (delta x wait_time)`
 
-## Deploy on GitHub Pages
+## GitHub Pages Deployment
 
-1. Create a GitHub repository.
-2. Upload `index.html`, `styles.css`, `script.js`, and this `README.md` to the repository root.
-3. Open the repository settings.
-4. Go to Pages.
-5. Select the `main` branch and root folder.
-6. Save, then open the generated GitHub Pages link.
+Upload `index.html`, `styles.css`, `script.js`, and `README.md` to the root of a GitHub repository. Then enable GitHub Pages from the repository settings using the `main` branch and root folder.

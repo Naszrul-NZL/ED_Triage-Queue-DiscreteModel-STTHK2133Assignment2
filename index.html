@@ -8,164 +8,180 @@
 </head>
 <body>
   <main class="app-shell">
-    <header class="topbar">
+    <header class="hero">
       <div>
-        <p class="eyebrow">Discrete Event Model</p>
-        <h1>Emergency Department Triage Simulator</h1>
+        <p class="eyebrow">STTHK2133 Modeling & Simulation</p>
+        <h1>Emergency Department Triage Simulation</h1>
+        <p class="hero-copy">A fixed patient cohort is monitored hour by hour using utility, SoftMax assignment, queue waiting time, and deterioration feedback.</p>
       </div>
-      <div class="status-strip" aria-label="Model indicators">
-        <span>ESI mapping</span>
-        <span>SoftMax assignment</span>
-        <span>Queue feedback</span>
+      <div class="clock-panel" aria-label="Simulation clock">
+        <span>Current Tick</span>
+        <strong id="currentTick">t = 0</strong>
+        <small>1 tick = 1 hour</small>
       </div>
     </header>
 
-    <section class="control-grid" aria-label="Simulation controls">
-      <div class="panel">
+    <section class="layout-grid">
+      <section class="panel">
         <div class="panel-heading">
           <h2>Patient Input</h2>
-          <p>Choose preset data or enter patient records.</p>
+          <p>Use the seven-patient preset cohort or enter your own anonymous patient data.</p>
         </div>
 
         <div class="segmented-control" role="radiogroup" aria-label="Patient data source">
           <label>
-            <input type="radio" name="data-source" value="preset" checked>
+            <input type="radio" name="dataSource" value="preset" checked>
             <span>Preset Data</span>
           </label>
           <label>
-            <input type="radio" name="data-source" value="custom">
+            <input type="radio" name="dataSource" value="custom">
             <span>Custom Data</span>
           </label>
         </div>
 
-        <div class="preset-actions" id="presetActions">
-          <button type="button" class="primary-button" id="loadPresetBtn">Load Preset Patients</button>
+        <div class="button-row" id="presetControls">
+          <button type="button" class="primary-button" id="loadPresetBtn">Load Preset Cohort</button>
           <button type="button" class="ghost-button" id="resetBtn">Reset Simulation</button>
         </div>
 
-        <form class="patient-form hidden" id="patientForm">
+        <form id="patientForm" class="custom-form hidden">
           <div class="form-grid">
             <label>
-              Severity Score
-              <input type="number" id="severityInput" min="0" max="10" step="0.1" value="5.5" required>
+              Age
+              <input type="number" id="ageInput" min="1" max="120" value="40" required>
             </label>
             <label>
-              Respiratory Risk
-              <select id="respiratoryInput">
-                <option value="0">None</option>
-                <option value="0.7">Mild</option>
-                <option value="1.4">Moderate</option>
-                <option value="2">Severe</option>
-              </select>
-            </label>
-            <label>
-              Vital Sign Risk
-              <select id="vitalInput">
-                <option value="0">Stable</option>
-                <option value="0.8">Watch</option>
-                <option value="1.6">Unstable</option>
-                <option value="2.4">Critical</option>
-              </select>
-            </label>
-            <label>
-              Warning Indicator
-              <select id="warningInput">
-                <option value="0">No</option>
-                <option value="1.2">Yes</option>
-              </select>
+              Initial Severity Score
+              <input type="number" id="severityInput" min="0" max="10" step="0.1" value="5.0" required>
             </label>
           </div>
-          <div class="form-actions">
+          <div class="button-row">
             <button type="submit" class="primary-button">Add Patient</button>
             <button type="button" class="ghost-button" id="clearPatientsBtn">Clear Patients</button>
           </div>
         </form>
-      </div>
+      </section>
 
-      <div class="panel">
+      <section class="panel">
         <div class="panel-heading">
-          <h2>Unit Setup</h2>
-          <p>Capacity, service rate, and initial waiting time.</p>
+          <h2>Simulation Controls</h2>
+          <p>The model advances in one-hour ticks.</p>
         </div>
-        <div class="unit-config" id="unitConfig"></div>
-      </div>
+        <div class="control-buttons">
+          <button type="button" class="primary-button" id="nextTickBtn">Next Hour</button>
+          <button type="button" class="ghost-button" id="runFiveBtn">Run 5 Hours</button>
+          <button type="button" class="ghost-button" id="restartBtn">Restart at t = 0</button>
+        </div>
+        <div class="formula-box">
+          <strong>Core rules</strong>
+          <span>U*ij = (alpha x Si + beta x Wj) - gamma x (nj / Cj)</span>
+          <span>P(j|i) = exp(U*ij) / sum exp(U*ik)</span>
+          <span>Wq = nj / muj</span>
+          <span>St = Sinitial + (delta x wait_time)</span>
+        </div>
+      </section>
 
-      <div class="panel model-panel">
+      <section class="panel">
         <div class="panel-heading">
-          <h2>Model Weights</h2>
-          <p>Adjust how urgency and congestion affect assignment.</p>
+          <h2>Model Constants</h2>
+          <p>Fixed values from the prepared report.</p>
         </div>
-        <div class="slider-row">
-          <label for="severityWeight">Severity weight</label>
-          <input type="range" id="severityWeight" min="0.2" max="2" step="0.1" value="1.1">
-          <output id="severityWeightOut">1.1</output>
-        </div>
-        <div class="slider-row">
-          <label for="waitWeight">Waiting penalty</label>
-          <input type="range" id="waitWeight" min="0.1" max="1.5" step="0.1" value="0.5">
-          <output id="waitWeightOut">0.5</output>
-        </div>
-        <div class="slider-row">
-          <label for="deteriorationRate">Deterioration rate</label>
-          <input type="range" id="deteriorationRate" min="0" max="1" step="0.05" value="0.3">
-          <output id="deteriorationRateOut">0.30</output>
-        </div>
-      </div>
+        <dl class="constant-list">
+          <div><dt>alpha</dt><dd>0.6</dd></div>
+          <div><dt>beta</dt><dd>-0.4</dd></div>
+          <div><dt>gamma</dt><dd>0.5</dd></div>
+          <div><dt>delta</dt><dd>0.1 / hour</dd></div>
+        </dl>
+      </section>
     </section>
 
-    <section class="summary-grid" aria-label="Simulation summary">
+    <section class="metric-grid" aria-label="Simulation metrics">
       <article class="metric-card">
         <span>Total Patients</span>
         <strong id="totalPatients">0</strong>
       </article>
       <article class="metric-card">
-        <span>Critical Cases</span>
-        <strong id="criticalPatients">0</strong>
+        <span>Average Severity</span>
+        <strong id="averageSeverity">0.00</strong>
       </article>
       <article class="metric-card">
-        <span>Most Congested Unit</span>
-        <strong id="congestedUnit">None</strong>
+        <span>ESI Escalations</span>
+        <strong id="totalEscalations">0</strong>
       </article>
       <article class="metric-card">
-        <span>Deteriorated Patients</span>
-        <strong id="deterioratedPatients">0</strong>
+        <span>Highest-Risk Patient</span>
+        <strong id="highestRiskPatient">None</strong>
       </article>
     </section>
 
-    <section class="results-grid">
-      <div class="panel wide-panel">
+    <section class="content-grid">
+      <section class="panel wide">
         <div class="panel-heading">
-          <h2>Patient Assignment Results</h2>
-          <p>Patients are automatically labeled as Patient 1, Patient 2, and so on.</p>
+          <h2>Current Patient State</h2>
+          <p>Patient names are removed and displayed as Patient 1, Patient 2, and so on.</p>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Patient</th>
-                <th>Severity</th>
-                <th>ESI</th>
-                <th>ICU</th>
-                <th>ER</th>
-                <th>Fast Track</th>
+                <th>Age</th>
+                <th>S Initial</th>
+                <th>S<sub>t</sub></th>
+                <th>Initial ESI</th>
+                <th>Current ESI</th>
                 <th>Assigned Unit</th>
-                <th>Wait</th>
-                <th>Updated Severity</th>
-                <th>Updated ESI</th>
+                <th>Wait Time</th>
+                <th>Wq</th>
+                <th>Status / Note</th>
               </tr>
             </thead>
-            <tbody id="patientTableBody"></tbody>
+            <tbody id="currentPatientBody"></tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <div class="panel">
+      <section class="panel">
         <div class="panel-heading">
-          <h2>Queue Status</h2>
-          <p>Arrival count, service rate, waiting time, and congestion.</p>
+          <h2>Unit Queue State</h2>
+          <p>Queue waiting time uses Wq = nj / muj.</p>
         </div>
-        <div class="queue-list" id="queueList"></div>
-      </div>
+        <div id="unitQueueList" class="unit-list"></div>
+      </section>
+    </section>
+
+    <section class="content-grid">
+      <section class="panel wide">
+        <div class="panel-heading">
+          <h2>Hourly History</h2>
+          <p>Every row is tied to a specific simulation hour.</p>
+        </div>
+        <div class="table-wrap history-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Hour</th>
+                <th>Patient</th>
+                <th>S Initial</th>
+                <th>S<sub>t</sub></th>
+                <th>ESI</th>
+                <th>Unit</th>
+                <th>Wq</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody id="historyBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>ESI Escalation Log</h2>
+          <p>Triggered when severity crosses an ESI threshold.</p>
+        </div>
+        <div id="escalationLog" class="log-list"></div>
+      </section>
     </section>
   </main>
 

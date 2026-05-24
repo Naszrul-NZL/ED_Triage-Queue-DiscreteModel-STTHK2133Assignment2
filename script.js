@@ -1,47 +1,84 @@
-const presetPatients = [
-  { severity: 9.1, respiratory: 2, vital: 2.4, warning: 1.2 },
-  { severity: 6.8, respiratory: 1.4, vital: 1.6, warning: 0 },
-  { severity: 4.7, respiratory: 0.7, vital: 0.8, warning: 0 },
-  { severity: 2.9, respiratory: 0, vital: 0.8, warning: 0 },
-  { severity: 1.4, respiratory: 0, vital: 0, warning: 0 }
+const MODEL = {
+  alpha: 0.6,
+  beta: -0.4,
+  gamma: 0.5,
+  delta: 0.1
+};
+
+const UNIT_TEMPLATE = [
+  { id: "ICU", name: "ICU", capacity: 2, serviceRate: 1 },
+  { id: "ER", name: "ER", capacity: 3, serviceRate: 3 },
+  { id: "FAST_TRACK", name: "Fast Track", capacity: 4, serviceRate: 6 }
 ];
 
-const unitDefaults = [
-  { id: "icu", name: "ICU", capacity: 2, serviceRate: 8, initialWait: 0.35, idealSeverity: 9.2, bias: 0.35, color: "#ff6b8a" },
-  { id: "er", name: "ER", capacity: 4, serviceRate: 10, initialWait: 0.25, idealSeverity: 5.4, bias: 0.15, color: "#38d8ff" },
-  { id: "fastTrack", name: "Fast Track", capacity: 5, serviceRate: 15, initialWait: 0.12, idealSeverity: 2.1, bias: 0.1, color: "#4ee0a5" }
+const PRESET_PATIENTS = [
+  { age: 62, severity: 8.5 },
+  { age: 45, severity: 7.2 },
+  { age: 33, severity: 5.1 },
+  { age: 28, severity: 3.4 },
+  { age: 55, severity: 1.8 },
+  { age: 70, severity: 6.5 },
+  { age: 41, severity: 4.3 }
 ];
 
 let patients = [];
-let units = structuredClone(unitDefaults);
-let patientSequence = 1;
+let units = [];
+let currentTime = 0;
+let history = [];
+let escalationEvents = [];
+let dataSource = "preset";
 
-const dataSourceInputs = document.querySelectorAll("input[name='data-source']");
-const presetActions = document.getElementById("presetActions");
-const patientForm = document.getElementById("patientForm");
-const unitConfig = document.getElementById("unitConfig");
-const patientTableBody = document.getElementById("patientTableBody");
-const queueList = document.getElementById("queueList");
-const severityWeight = document.getElementById("severityWeight");
-const waitWeight = document.getElementById("waitWeight");
-const deteriorationRate = document.getElementById("deteriorationRate");
-
-const outputs = {
-  severityWeight: document.getElementById("severityWeightOut"),
-  waitWeight: document.getElementById("waitWeightOut"),
-  deteriorationRate: document.getElementById("deteriorationRateOut"),
+const elements = {
+  currentTick: document.getElementById("currentTick"),
   totalPatients: document.getElementById("totalPatients"),
-  criticalPatients: document.getElementById("criticalPatients"),
-  congestedUnit: document.getElementById("congestedUnit"),
-  deterioratedPatients: document.getElementById("deterioratedPatients")
+  averageSeverity: document.getElementById("averageSeverity"),
+  totalEscalations: document.getElementById("totalEscalations"),
+  highestRiskPatient: document.getElementById("highestRiskPatient"),
+  currentPatientBody: document.getElementById("currentPatientBody"),
+  unitQueueList: document.getElementById("unitQueueList"),
+  historyBody: document.getElementById("historyBody"),
+  escalationLog: document.getElementById("escalationLog"),
+  presetControls: document.getElementById("presetControls"),
+  patientForm: document.getElementById("patientForm")
 };
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(Number(value), min), max);
+function makePatient(data, index) {
+  const severity = clamp(Number(data.severity), 0, 10);
+  const initialEsi = mapSeverityToEsi(severity);
+
+  return {
+    id: `P${String(index + 1).padStart(3, "0")}`,
+    label: `Patient ${index + 1}`,
+    age: Number(data.age),
+    arrivalTime: 0,
+    severityInitial: severity,
+    currentSeverity: severity,
+    initialEsi,
+    currentEsi: initialEsi,
+    assignedUnit: "",
+    waitTime: 0,
+    status: "WAITING",
+    note: "Stable - no change",
+    lastUtilities: [],
+    lastProbabilities: []
+  };
 }
 
-function round(value, digits = 2) {
-  return Number.parseFloat(value).toFixed(digits);
+function makeUnits() {
+  return UNIT_TEMPLATE.map((unit) => ({
+    ...unit,
+    occupancy: 0,
+    waitingTime: 0,
+    patientIds: []
+  }));
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function formatNumber(value, digits = 2) {
+  return Number(value).toFixed(digits);
 }
 
 function mapSeverityToEsi(severity) {
@@ -52,273 +89,348 @@ function mapSeverityToEsi(severity) {
   return "5";
 }
 
-function getEsiClass(severity) {
-  if (severity >= 6) return "critical";
-  if (severity >= 4) return "moderate";
+function getEsiClass(esi) {
+  if (esi === "1-2" || esi === "2-3") return "critical";
+  if (esi === "3") return "moderate";
   return "minor";
 }
 
-function makePatient(data) {
-  const clinicalFactor = Number(data.respiratory) + Number(data.vital) + Number(data.warning);
-  const severity = clamp(Number(data.severity) + clinicalFactor * 0.25, 0, 10);
-
-  return {
-    id: `patient-${patientSequence++}`,
-    severity,
-    respiratory: Number(data.respiratory),
-    vital: Number(data.vital),
-    warning: Number(data.warning)
-  };
+function getUnit(unitId) {
+  return units.find((unit) => unit.id === unitId);
 }
 
-function renderUnitConfig() {
-  unitConfig.innerHTML = units.map((unit) => `
-    <div class="unit-card" data-unit="${unit.id}">
-      <div class="unit-name">
-        <span class="unit-dot" style="background:${unit.color}"></span>
-        ${unit.name}
-      </div>
-      <label>
-        Capacity
-        <input type="number" min="1" max="30" step="1" value="${unit.capacity}" data-field="capacity">
-      </label>
-      <label>
-        Service Rate
-        <input type="number" min="0.1" max="30" step="0.1" value="${unit.serviceRate}" data-field="serviceRate">
-      </label>
-      <label>
-        Initial Wait
-        <input type="number" min="0" max="10" step="0.05" value="${unit.initialWait}" data-field="initialWait">
-      </label>
-    </div>
-  `).join("");
+function updateUnitWaitingTimes() {
+  units.forEach((unit) => {
+    unit.occupancy = unit.patientIds.length;
+    unit.waitingTime = unit.occupancy / unit.serviceRate;
+  });
 }
 
-function softmax(utilities) {
-  const maxUtility = Math.max(...utilities);
-  const exponentials = utilities.map((value) => Math.exp(value - maxUtility));
+function computeUtility(patient, unit) {
+  return (
+    MODEL.alpha * patient.currentSeverity +
+    MODEL.beta * unit.waitingTime
+  ) - MODEL.gamma * (unit.occupancy / unit.capacity);
+}
+
+function softmax(values) {
+  const maxValue = Math.max(...values);
+  const exponentials = values.map((value) => Math.exp(value - maxValue));
   const total = exponentials.reduce((sum, value) => sum + value, 0);
-
   return exponentials.map((value) => value / total);
 }
 
-function calculateSimulation() {
-  const severityBeta = Number(severityWeight.value);
-  const waitBeta = Number(waitWeight.value);
-  const deteriorationBeta = Number(deteriorationRate.value);
-  const queues = units.map((unit) => ({
-    ...unit,
-    assigned: [],
-    arrivalRate: 0,
-    waitingTime: unit.initialWait,
-    congestion: 0
-  }));
+function chooseUnit(patient) {
+  const utilities = units.map((unit) => computeUtility(patient, unit));
+  const probabilities = softmax(utilities);
+  const bestIndex = probabilities.indexOf(Math.max(...probabilities));
 
-  const results = patients.map((patient) => {
-    const utilities = queues.map((unit) => {
-      const severityCompatibility = 10 - Math.abs(patient.severity - unit.idealSeverity);
-      const congestion = unit.assigned.length / unit.capacity;
-      return severityBeta * severityCompatibility - waitBeta * unit.waitingTime - congestion + unit.bias;
-    });
+  patient.lastUtilities = utilities;
+  patient.lastProbabilities = probabilities;
 
-    const probabilities = softmax(utilities);
-    const bestIndex = probabilities.indexOf(Math.max(...probabilities));
-    const assignedUnit = queues[bestIndex];
+  return units[bestIndex].id;
+}
 
-    assignedUnit.assigned.push(patient.id);
-    assignedUnit.arrivalRate = assignedUnit.assigned.length;
-    assignedUnit.congestion = assignedUnit.assigned.length / assignedUnit.capacity;
-    assignedUnit.waitingTime = calculateWaitingTime(assignedUnit);
+function assignPatient(patient, unitId) {
+  if (patient.assignedUnit) {
+    const oldUnit = getUnit(patient.assignedUnit);
+    oldUnit.patientIds = oldUnit.patientIds.filter((id) => id !== patient.id);
+  }
 
-    const patientWait = assignedUnit.waitingTime;
-    const updatedSeverity = clamp(patient.severity + deteriorationBeta * patientWait, 0, 10);
+  const newUnit = getUnit(unitId);
+  newUnit.patientIds.push(patient.id);
+  patient.assignedUnit = unitId;
+  updateUnitWaitingTimes();
+}
 
-    return {
-      ...patient,
-      esi: mapSeverityToEsi(patient.severity),
-      probabilities,
-      assignedUnit: assignedUnit.name,
-      wait: patientWait,
-      updatedSeverity,
-      updatedEsi: mapSeverityToEsi(updatedSeverity),
-      deteriorated: updatedSeverity - patient.severity >= 0.25
-    };
+function initializeSimulation(sourcePatients = PRESET_PATIENTS) {
+  units = makeUnits();
+  currentTime = 0;
+  history = [];
+  escalationEvents = [];
+  patients = sourcePatients.map(makePatient);
+
+  patients.forEach((patient) => {
+    const unitId = chooseUnit(patient);
+    assignPatient(patient, unitId);
   });
 
-  return { results, queues };
+  patients.forEach((patient) => {
+    patient.waitTime = 0;
+    patient.currentSeverity = patient.severityInitial;
+    patient.currentEsi = patient.initialEsi;
+    patient.note = "Stable - no change";
+  });
+
+  logCurrentState();
+  render();
 }
 
-function calculateWaitingTime(unit) {
-  const effectiveServiceRate = unit.serviceRate * unit.capacity;
-  const load = unit.assigned.length;
-  const denominator = Math.max(effectiveServiceRate - load, 0.2);
-  return unit.initialWait + load / denominator;
+function restartCurrentSimulation() {
+  const sourcePatients = patients.map((patient) => ({
+    age: patient.age,
+    severity: patient.severityInitial
+  }));
+
+  initializeSimulation(sourcePatients.length ? sourcePatients : PRESET_PATIENTS);
 }
 
-function renderProbability(probability) {
-  const percent = Math.round(probability * 100);
-  return `
-    <div class="probability">
-      ${percent}%
-      <div class="probability-bar" aria-hidden="true">
-        <div class="probability-fill" style="width:${percent}%"></div>
-      </div>
-    </div>
-  `;
+function advanceOneHour() {
+  if (!patients.length) return;
+
+  currentTime += 1;
+
+  patients.forEach((patient) => {
+    if (patient.status !== "WAITING") return;
+
+    const previousEsi = patient.currentEsi;
+    const previousUnit = patient.assignedUnit;
+
+    patient.waitTime += 1;
+    patient.currentSeverity = clamp(
+      patient.severityInitial + MODEL.delta * patient.waitTime,
+      0,
+      10
+    );
+    patient.currentEsi = mapSeverityToEsi(patient.currentSeverity);
+    patient.note = "Stable - no change";
+
+    if (patient.currentEsi !== previousEsi) {
+      const newUnitId = chooseUnit(patient);
+      if (newUnitId !== previousUnit) {
+        assignPatient(patient, newUnitId);
+        patient.note = `ESCALATED ESI ${previousEsi} -> ${patient.currentEsi}; reassigned to ${getUnit(newUnitId).name}`;
+      } else {
+        patient.note = `ESCALATED ESI ${previousEsi} -> ${patient.currentEsi}; unit unchanged`;
+      }
+
+      escalationEvents.push({
+        time: currentTime,
+        patient: patient.label,
+        oldEsi: previousEsi,
+        newEsi: patient.currentEsi,
+        severity: patient.currentSeverity,
+        action: patient.note
+      });
+    }
+  });
+
+  updateUnitWaitingTimes();
+  logCurrentState();
+  render();
 }
 
-function renderPatients(results) {
-  if (!results.length) {
-    patientTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">No patient records yet.</td></tr>`;
+function runHours(hours) {
+  for (let i = 0; i < hours; i += 1) {
+    advanceOneHour();
+  }
+}
+
+function logCurrentState() {
+  patients.forEach((patient) => {
+    const unit = getUnit(patient.assignedUnit);
+    history.push({
+      time: currentTime,
+      patient: patient.label,
+      severityInitial: patient.severityInitial,
+      currentSeverity: patient.currentSeverity,
+      esi: patient.currentEsi,
+      unit: unit.name,
+      waitingTime: unit.waitingTime,
+      note: patient.note
+    });
+  });
+}
+
+function render() {
+  elements.currentTick.textContent = `t = ${currentTime}`;
+  renderMetrics();
+  renderPatients();
+  renderUnits();
+  renderHistory();
+  renderEscalations();
+}
+
+function renderMetrics() {
+  const totalSeverity = patients.reduce((sum, patient) => sum + patient.currentSeverity, 0);
+  const averageSeverity = patients.length ? totalSeverity / patients.length : 0;
+  const highestRisk = patients.reduce((highest, patient) => (
+    !highest || patient.currentSeverity > highest.currentSeverity ? patient : highest
+  ), null);
+
+  elements.totalPatients.textContent = patients.length;
+  elements.averageSeverity.textContent = formatNumber(averageSeverity);
+  elements.totalEscalations.textContent = escalationEvents.length;
+  elements.highestRiskPatient.textContent = highestRisk ? highestRisk.label : "None";
+}
+
+function renderPatients() {
+  if (!patients.length) {
+    elements.currentPatientBody.innerHTML = `<tr><td colspan="10" class="empty-state">No patient records yet.</td></tr>`;
     return;
   }
 
-  patientTableBody.innerHTML = results.map((patient, index) => `
-    <tr>
-      <td><strong>Patient ${index + 1}</strong></td>
-      <td>${round(patient.severity)}</td>
-      <td><span class="badge ${getEsiClass(patient.severity)}">ESI ${patient.esi}</span></td>
-      <td>${renderProbability(patient.probabilities[0])}</td>
-      <td>${renderProbability(patient.probabilities[1])}</td>
-      <td>${renderProbability(patient.probabilities[2])}</td>
-      <td><strong>${patient.assignedUnit}</strong></td>
-      <td>${round(patient.wait)} hr</td>
-      <td>${round(patient.updatedSeverity)}</td>
-      <td><span class="badge ${getEsiClass(patient.updatedSeverity)}">ESI ${patient.updatedEsi}</span></td>
-    </tr>
-  `).join("");
-}
-
-function renderQueues(queues) {
-  queueList.innerHTML = queues.map((unit) => {
-    const capacityPercent = Math.min(Math.round(unit.congestion * 100), 160);
-    const congestionLabel = unit.congestion >= 1 ? "Full" : unit.congestion >= 0.75 ? "High" : "Stable";
+  elements.currentPatientBody.innerHTML = patients.map((patient) => {
+    const unit = getUnit(patient.assignedUnit);
+    const escalated = patient.note.startsWith("ESCALATED");
 
     return `
-      <article class="queue-card">
+      <tr class="${escalated ? "highlight-row" : ""}">
+        <td><strong>${patient.label}</strong></td>
+        <td>${patient.age}</td>
+        <td>${formatNumber(patient.severityInitial)}</td>
+        <td>${formatNumber(patient.currentSeverity)}</td>
+        <td><span class="badge ${getEsiClass(patient.initialEsi)}">ESI ${patient.initialEsi}</span></td>
+        <td><span class="badge ${getEsiClass(patient.currentEsi)}">ESI ${patient.currentEsi}</span></td>
+        <td><strong>${unit.name}</strong></td>
+        <td>${patient.waitTime} hr</td>
+        <td>${formatNumber(unit.waitingTime)} hr</td>
+        <td>${patient.note}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function renderUnits() {
+  elements.unitQueueList.innerHTML = units.map((unit) => {
+    const capacityPercent = Math.min((unit.occupancy / unit.capacity) * 100, 100);
+    const patientLabels = unit.patientIds
+      .map((id) => patients.find((patient) => patient.id === id)?.label)
+      .filter(Boolean)
+      .join(", ") || "None";
+
+    return `
+      <article class="unit-card">
         <h3>${unit.name}</h3>
-        <div class="queue-metrics">
+        <div class="unit-metrics">
           <div>
-            <span>Patients</span>
-            <strong>${unit.assigned.length}/${unit.capacity}</strong>
+            <span>n_j</span>
+            <strong>${unit.occupancy}</strong>
           </div>
           <div>
-            <span>Arrival Rate</span>
-            <strong>${unit.arrivalRate}</strong>
+            <span>Capacity C_j</span>
+            <strong>${unit.capacity}</strong>
           </div>
           <div>
-            <span>Service Rate</span>
-            <strong>${unit.serviceRate}</strong>
+            <span>mu_j</span>
+            <strong>${unit.serviceRate} pt/hr</strong>
           </div>
           <div>
-            <span>Waiting Time</span>
-            <strong>${round(unit.waitingTime)} hr</strong>
+            <span>Wq = n_j / mu_j</span>
+            <strong>${formatNumber(unit.waitingTime)} hr</strong>
           </div>
         </div>
-        <div class="capacity-bar" title="${congestionLabel}">
-          <div class="capacity-fill" style="width:${Math.min(capacityPercent, 100)}%"></div>
+        <div class="capacity-bar" aria-label="Unit occupancy">
+          <div class="capacity-fill" style="width:${capacityPercent}%"></div>
         </div>
+        <p class="unit-patients">${patientLabels}</p>
       </article>
     `;
   }).join("");
 }
 
-function renderSummary(results, queues) {
-  const criticalCount = results.filter((patient) => patient.severity >= 6).length;
-  const deterioratedCount = results.filter((patient) => patient.deteriorated).length;
-  const mostCongested = queues.reduce((highest, unit) => (
-    unit.congestion > highest.congestion ? unit : highest
-  ), queues[0]);
-
-  outputs.totalPatients.textContent = results.length;
-  outputs.criticalPatients.textContent = criticalCount;
-  outputs.congestedUnit.textContent = results.length ? mostCongested.name : "None";
-  outputs.deterioratedPatients.textContent = deterioratedCount;
-}
-
-function renderAll() {
-  outputs.severityWeight.textContent = Number(severityWeight.value).toFixed(1);
-  outputs.waitWeight.textContent = Number(waitWeight.value).toFixed(1);
-  outputs.deteriorationRate.textContent = Number(deteriorationRate.value).toFixed(2);
-
-  const { results, queues } = calculateSimulation();
-  renderPatients(results);
-  renderQueues(queues);
-  renderSummary(results, queues);
-}
-
-function setDataSource(source) {
-  const customMode = source === "custom";
-  patientForm.classList.toggle("hidden", !customMode);
-  presetActions.classList.toggle("hidden", customMode);
-
-  if (customMode) {
-    patients = [];
-  } else {
-    loadPresetPatients();
+function renderHistory() {
+  if (!history.length) {
+    elements.historyBody.innerHTML = `<tr><td colspan="8" class="empty-state">No hourly records yet.</td></tr>`;
+    return;
   }
 
-  renderAll();
+  elements.historyBody.innerHTML = history.map((row) => `
+    <tr class="${row.note.startsWith("ESCALATED") ? "highlight-row" : ""}">
+      <td>t = ${row.time}</td>
+      <td><strong>${row.patient}</strong></td>
+      <td>${formatNumber(row.severityInitial)}</td>
+      <td>${formatNumber(row.currentSeverity)}</td>
+      <td><span class="badge ${getEsiClass(row.esi)}">ESI ${row.esi}</span></td>
+      <td>${row.unit}</td>
+      <td>${formatNumber(row.waitingTime)} hr</td>
+      <td>${row.note}</td>
+    </tr>
+  `).join("");
 }
 
-function loadPresetPatients() {
-  patients = presetPatients.map(makePatient);
+function renderEscalations() {
+  if (!escalationEvents.length) {
+    elements.escalationLog.innerHTML = `<p class="empty-state">No ESI escalation has occurred yet.</p>`;
+    return;
+  }
+
+  elements.escalationLog.innerHTML = escalationEvents.map((event) => `
+    <article class="log-card">
+      <h3>${event.patient}</h3>
+      <span>Hour</span>
+      <strong>t = ${event.time}</strong>
+      <span>Change</span>
+      <strong>ESI ${event.oldEsi} -> ESI ${event.newEsi}</strong>
+      <span>Severity</span>
+      <strong>${formatNumber(event.severity)}</strong>
+      <span>Action</span>
+      <strong>${event.action}</strong>
+    </article>
+  `).join("");
 }
 
-function resetSimulation() {
-  units = structuredClone(unitDefaults);
-  loadPresetPatients();
-  severityWeight.value = "1.1";
-  waitWeight.value = "0.5";
-  deteriorationRate.value = "0.3";
-  renderUnitConfig();
-  renderAll();
-}
+document.querySelectorAll("input[name='dataSource']").forEach((input) => {
+  input.addEventListener("change", (event) => {
+    dataSource = event.target.value;
+    const customMode = dataSource === "custom";
+    elements.patientForm.classList.toggle("hidden", !customMode);
+    elements.presetControls.classList.toggle("hidden", customMode);
 
-dataSourceInputs.forEach((input) => {
-  input.addEventListener("change", (event) => setDataSource(event.target.value));
+    if (customMode) {
+      patients = [];
+      units = makeUnits();
+      currentTime = 0;
+      history = [];
+      escalationEvents = [];
+      render();
+    } else {
+      initializeSimulation(PRESET_PATIENTS);
+    }
+  });
 });
 
 document.getElementById("loadPresetBtn").addEventListener("click", () => {
-  loadPresetPatients();
-  renderAll();
+  dataSource = "preset";
+  initializeSimulation(PRESET_PATIENTS);
 });
 
-document.getElementById("resetBtn").addEventListener("click", resetSimulation);
+document.getElementById("resetBtn").addEventListener("click", () => {
+  initializeSimulation(PRESET_PATIENTS);
+});
+
+document.getElementById("restartBtn").addEventListener("click", restartCurrentSimulation);
+
+document.getElementById("nextTickBtn").addEventListener("click", advanceOneHour);
+
+document.getElementById("runFiveBtn").addEventListener("click", () => runHours(5));
 
 document.getElementById("clearPatientsBtn").addEventListener("click", () => {
   patients = [];
-  renderAll();
+  units = makeUnits();
+  currentTime = 0;
+  history = [];
+  escalationEvents = [];
+  render();
 });
 
-patientForm.addEventListener("submit", (event) => {
+document.getElementById("patientForm").addEventListener("submit", (event) => {
   event.preventDefault();
 
-  patients.push(makePatient({
-    severity: document.getElementById("severityInput").value,
-    respiratory: document.getElementById("respiratoryInput").value,
-    vital: document.getElementById("vitalInput").value,
-    warning: document.getElementById("warningInput").value
+  const newSource = patients.map((patient) => ({
+    age: patient.age,
+    severity: patient.severityInitial
   }));
 
+  newSource.push({
+    age: document.getElementById("ageInput").value,
+    severity: document.getElementById("severityInput").value
+  });
+
+  initializeSimulation(newSource);
   event.target.reset();
-  document.getElementById("severityInput").value = "5.5";
-  renderAll();
+  document.getElementById("ageInput").value = "40";
+  document.getElementById("severityInput").value = "5.0";
 });
 
-unitConfig.addEventListener("input", (event) => {
-  const card = event.target.closest(".unit-card");
-  if (!card) return;
-
-  const unit = units.find((item) => item.id === card.dataset.unit);
-  unit[event.target.dataset.field] = Number(event.target.value);
-  renderAll();
-});
-
-[severityWeight, waitWeight, deteriorationRate].forEach((input) => {
-  input.addEventListener("input", renderAll);
-});
-
-renderUnitConfig();
-loadPresetPatients();
-renderAll();
+initializeSimulation(PRESET_PATIENTS);
