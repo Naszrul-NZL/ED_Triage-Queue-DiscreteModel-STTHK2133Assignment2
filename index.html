@@ -12,9 +12,9 @@
       <div>
         <p class="eyebrow">STTHK2133 Modeling & Simulation</p>
         <h1>Emergency Department Triage Time Explorer</h1>
-        <p class="hero-copy">Select any simulation hour and observe the current patient condition, ESI level, unit queue, waiting time, and severity graph.</p>
+        <p class="hero-copy">Inspect patient condition, ESI escalation, pathway probabilities, and queue waiting time at any selected hour.</p>
       </div>
-      <div class="clock-card" aria-label="Current simulation time">
+      <div class="clock-card">
         <span>Current Time</span>
         <strong id="currentHourLabel">Hour 0</strong>
         <small>1 tick = 1 hour</small>
@@ -25,10 +25,9 @@
       <section class="panel">
         <div class="panel-heading">
           <h2>Patient Input</h2>
-          <p>Use preset data or enter anonymous patient records.</p>
+          <p>Use preset data or enter custom anonymous patients.</p>
         </div>
-
-        <div class="segmented-control" role="radiogroup" aria-label="Patient data source">
+        <div class="segmented-control">
           <label>
             <input type="radio" name="dataSource" value="preset" checked>
             <span>Preset Data</span>
@@ -38,55 +37,38 @@
             <span>Custom Data</span>
           </label>
         </div>
-
         <div class="button-row" id="presetControls">
-          <button type="button" class="primary-button" id="loadPresetBtn">Load Preset Cohort</button>
-          <button type="button" class="ghost-button" id="resetBtn">Reset</button>
+          <button class="primary-button" type="button" id="loadPresetBtn">Load Preset Cohort</button>
+          <button class="ghost-button" type="button" id="resetBtn">Reset</button>
         </div>
-
         <form class="custom-form hidden" id="patientForm">
           <div class="form-grid">
-            <label>
-              Age
-              <input type="number" id="ageInput" min="1" max="120" value="40" required>
-            </label>
-            <label>
-              Initial Severity Score
-              <input type="number" id="severityInput" min="0" max="10" step="0.1" value="5.0" required>
-            </label>
+            <label>Age <input type="number" id="ageInput" min="1" max="120" value="40" required></label>
+            <label>Initial Severity <input type="number" id="severityInput" min="0" max="10" step="0.1" value="5.0" required></label>
           </div>
           <div class="button-row">
-            <button type="submit" class="primary-button">Add Patient</button>
-            <button type="button" class="ghost-button" id="clearPatientsBtn">Clear</button>
+            <button class="primary-button" type="submit">Add Patient</button>
+            <button class="ghost-button" type="button" id="clearPatientsBtn">Clear</button>
           </div>
         </form>
       </section>
 
-      <section class="panel time-panel">
+      <section class="panel">
         <div class="panel-heading">
           <h2>Time Control</h2>
-          <p>Move the slider or type an hour to inspect the system state.</p>
+          <p>Type any hour, including 100 or more.</p>
         </div>
-
         <div class="time-readout">
-          <button type="button" class="icon-button" id="previousHourBtn" aria-label="Previous hour">-</button>
+          <button class="icon-button" type="button" id="previousHourBtn" aria-label="Previous hour">-</button>
           <div>
             <span>Selected Hour</span>
             <strong id="selectedHourBig">0</strong>
           </div>
-          <button type="button" class="icon-button" id="nextHourBtn" aria-label="Next hour">+</button>
+          <button class="icon-button" type="button" id="nextHourBtn" aria-label="Next hour">+</button>
         </div>
-
-        <label class="slider-label">
-          Hour Slider
-          <input type="range" id="hourSlider" min="0" max="24" step="1" value="0">
-        </label>
-
+        <label class="slider-label">Hour Slider <input type="range" id="hourSlider" min="0" max="24" step="1" value="0"></label>
         <div class="time-input-row">
-          <label>
-            Jump to Hour
-            <input type="number" id="hourInput" min="0" step="1" value="0">
-          </label>
+          <label>Jump to Hour <input type="number" id="hourInput" min="0" step="1" value="0"></label>
           <div class="range-note">
             <span>Slider Range</span>
             <strong id="sliderRangeLabel">0-24</strong>
@@ -97,41 +79,29 @@
       <section class="panel">
         <div class="panel-heading">
           <h2>Model Rules</h2>
-          <p>Fixed values from the prepared system report.</p>
+          <p>Aligned with the prepared report.</p>
         </div>
         <dl class="constant-list">
           <div><dt>Utility</dt><dd>U = (0.6S - 0.4W) - 0.5(n/C)</dd></div>
-          <div><dt>SoftMax</dt><dd>argmax probability</dd></div>
+          <div><dt>SoftMax</dt><dd>P = exp(U) / sum exp(U)</dd></div>
           <div><dt>Waiting</dt><dd>Wq = n / mu</dd></div>
           <div><dt>Deterioration</dt><dd>S(t) = S0 + 0.1t</dd></div>
         </dl>
       </section>
     </section>
 
-    <section class="metric-grid" aria-label="Current metrics">
-      <article class="metric-card">
-        <span>Total Patients</span>
-        <strong id="totalPatients">0</strong>
-      </article>
-      <article class="metric-card">
-        <span>Average Severity</span>
-        <strong id="averageSeverity">0.00</strong>
-      </article>
-      <article class="metric-card">
-        <span>ESI Escalations by Hour</span>
-        <strong id="totalEscalations">0</strong>
-      </article>
-      <article class="metric-card">
-        <span>Highest-Risk Patient</span>
-        <strong id="highestRiskPatient">None</strong>
-      </article>
+    <section class="metric-grid">
+      <article class="metric-card"><span>Total Patients</span><strong id="totalPatients">0</strong></article>
+      <article class="metric-card"><span>Average Severity</span><strong id="averageSeverity">0.00</strong></article>
+      <article class="metric-card"><span>ESI Escalations</span><strong id="totalEscalations">0</strong></article>
+      <article class="metric-card"><span>Highest-Risk Patient</span><strong id="highestRiskPatient">None</strong></article>
     </section>
 
     <section class="content-grid">
       <section class="panel wide">
         <div class="panel-heading">
           <h2>Current Patient State</h2>
-          <p>The table updates to the selected hour only.</p>
+          <p>The table shows the selected hour only.</p>
         </div>
         <div class="table-wrap">
           <table>
@@ -157,7 +127,7 @@
       <section class="panel">
         <div class="panel-heading">
           <h2>Unit Queue State</h2>
-          <p>Computed at the selected hour.</p>
+          <p>Computed using Wq = n / mu.</p>
         </div>
         <div class="unit-list" id="unitQueueList"></div>
       </section>
@@ -166,28 +136,38 @@
     <section class="chart-grid">
       <section class="panel chart-panel">
         <div class="panel-heading">
-          <h2>Severity Trend Graph</h2>
-          <p>Patient severity from Hour 0 to the selected hour.</p>
+          <h2>Pathway Selection Over Patient Sequence</h2>
+          <p>SoftMax assignment probability for ICU, ER, and Fast Track.</p>
         </div>
-        <canvas id="severityChart" width="920" height="420" aria-label="Severity trend graph"></canvas>
-        <div class="chart-legend" id="chartLegend"></div>
+        <canvas id="pathwayChart" width="900" height="430" aria-label="Pathway selection probability chart"></canvas>
       </section>
 
       <section class="panel chart-panel">
         <div class="panel-heading">
-          <h2>Queue Waiting Chart</h2>
-          <p>Current Wq for ICU, ER, and Fast Track.</p>
+          <h2>Severity Trend Graph</h2>
+          <p>Severity movement from Hour 0 to the selected hour.</p>
         </div>
-        <canvas id="queueChart" width="420" height="420" aria-label="Queue waiting chart"></canvas>
+        <canvas id="severityChart" width="900" height="430" aria-label="Severity trend graph"></canvas>
+        <div class="chart-legend" id="chartLegend"></div>
       </section>
     </section>
 
-    <section class="panel">
-      <div class="panel-heading">
-        <h2>ESI Escalation Log</h2>
-        <p>Only events that have happened up to the selected hour are shown.</p>
-      </div>
-      <div class="log-list" id="escalationLog"></div>
+    <section class="chart-grid small-chart-grid">
+      <section class="panel chart-panel">
+        <div class="panel-heading">
+          <h2>Queue Waiting Chart</h2>
+          <p>Current Wq by unit.</p>
+        </div>
+        <canvas id="queueChart" width="520" height="360" aria-label="Queue waiting chart"></canvas>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>ESI Escalation Log</h2>
+          <p>Events up to the selected hour.</p>
+        </div>
+        <div class="log-list" id="escalationLog"></div>
+      </section>
     </section>
   </main>
 
