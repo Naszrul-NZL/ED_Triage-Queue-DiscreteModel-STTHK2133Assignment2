@@ -16,33 +16,34 @@ const PRESET_PATIENTS = [
   { age: 41, severity: 4.3 }
 ];
 
-const PATIENT_COLORS = ["#37d5ff", "#9d6dff", "#ef5ccc", "#52e0a4", "#ffd166", "#ff6d8d", "#7aa2ff", "#c891ff"];
+const PATIENT_COLORS = ["#37d5ff", "#9d6dff", "#ef5ccc", "#52e0a4", "#ffd166", "#ff6d8d", "#7aa2ff"];
 const PATHWAY_COLORS = { ICU: "#1f8cc9", ER: "#e4511e", FAST_TRACK: "#efb21d" };
 
 let sourcePatients = PRESET_PATIENTS.map((patient) => ({ ...patient }));
 let selectedHour = 0;
 let maxHour = 24;
-let currentResult = null;
+let currentResult;
 
+const $ = (id) => document.getElementById(id);
 const elements = {
-  currentHourLabel: document.getElementById("currentHourLabel"),
-  selectedHourBig: document.getElementById("selectedHourBig"),
-  hourSlider: document.getElementById("hourSlider"),
-  hourInput: document.getElementById("hourInput"),
-  sliderRangeLabel: document.getElementById("sliderRangeLabel"),
-  totalPatients: document.getElementById("totalPatients"),
-  averageSeverity: document.getElementById("averageSeverity"),
-  totalEscalations: document.getElementById("totalEscalations"),
-  highestRiskPatient: document.getElementById("highestRiskPatient"),
-  patientTableBody: document.getElementById("patientTableBody"),
-  unitQueueList: document.getElementById("unitQueueList"),
-  escalationLog: document.getElementById("escalationLog"),
-  chartLegend: document.getElementById("chartLegend"),
-  pathwayChart: document.getElementById("pathwayChart"),
-  severityChart: document.getElementById("severityChart"),
-  queueChart: document.getElementById("queueChart"),
-  patientForm: document.getElementById("patientForm"),
-  presetControls: document.getElementById("presetControls")
+  currentHourLabel: $("currentHourLabel"),
+  selectedHourBig: $("selectedHourBig"),
+  hourSlider: $("hourSlider"),
+  hourInput: $("hourInput"),
+  sliderRangeLabel: $("sliderRangeLabel"),
+  totalPatients: $("totalPatients"),
+  averageSeverity: $("averageSeverity"),
+  totalEscalations: $("totalEscalations"),
+  highestRiskPatient: $("highestRiskPatient"),
+  patientTableBody: $("patientTableBody"),
+  unitQueueList: $("unitQueueList"),
+  escalationLog: $("escalationLog"),
+  chartLegend: $("chartLegend"),
+  pathwayChart: $("pathwayChart"),
+  severityChart: $("severityChart"),
+  queueChart: $("queueChart"),
+  patientForm: $("patientForm"),
+  presetControls: $("presetControls")
 };
 
 function clamp(value, min, max) {
@@ -111,8 +112,7 @@ function softmax(values) {
 }
 
 function chooseUnit(patient, units) {
-  const utilities = units.map((unit) => computeUtility(patient, unit));
-  const probabilities = softmax(utilities);
+  const probabilities = softmax(units.map((unit) => computeUtility(patient, unit)));
   patient.lastProbabilities = probabilities;
   return units[probabilities.indexOf(Math.max(...probabilities))].id;
 }
@@ -133,7 +133,7 @@ function assignPatient(patient, unitId, units) {
 
 function captureSeverityPoint(series, patients, hour) {
   patients.forEach((patient, index) => {
-    series[index].points.push({ hour, severity: patient.currentSeverity, esi: patient.currentEsi });
+    series[index].points.push({ hour, severity: patient.currentSeverity });
   });
 }
 
@@ -213,7 +213,7 @@ function render() {
 
 function renderMetrics() {
   const { patients, escalationEvents } = currentResult;
-  const averageSeverity = patients.length ? patients.reduce((sum, patient) => sum + patient.currentSeverity, 0) / patients.length : 0;
+  const averageSeverity = patients.length ? patients.reduce((sum, p) => sum + p.currentSeverity, 0) / patients.length : 0;
   const highestRisk = patients.reduce((highest, patient) => !highest || patient.currentSeverity > highest.currentSeverity ? patient : highest, null);
   elements.totalPatients.textContent = patients.length;
   elements.averageSeverity.textContent = formatNumber(averageSeverity);
@@ -224,7 +224,7 @@ function renderMetrics() {
 function renderPatients() {
   const { patients, units } = currentResult;
   if (!patients.length) {
-    elements.patientTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">No patient records yet.</td></tr>`;
+    elements.patientTableBody.innerHTML = `<tr><td colspan="10" class="empty">No patient records yet.</td></tr>`;
     return;
   }
   elements.patientTableBody.innerHTML = patients.map((patient) => {
@@ -250,7 +250,7 @@ function renderUnits() {
   const { units, patients } = currentResult;
   elements.unitQueueList.innerHTML = units.map((unit) => {
     const capacityPercent = Math.min((unit.occupancy / unit.capacity) * 100, 100);
-    const patientLabels = unit.patientIds.map((id) => patients.find((patient) => patient.id === id)?.label).filter(Boolean).join(", ") || "None";
+    const patientLabels = unit.patientIds.map((id) => patients.find((p) => p.id === id)?.label).filter(Boolean).join(", ") || "None";
     return `
       <article class="unit-card">
         <h3>${unit.name}</h3>
@@ -270,7 +270,7 @@ function renderUnits() {
 function renderEscalations() {
   const { escalationEvents } = currentResult;
   if (!escalationEvents.length) {
-    elements.escalationLog.innerHTML = `<p class="empty-state">No ESI escalation has occurred by Hour ${selectedHour}.</p>`;
+    elements.escalationLog.innerHTML = `<p class="empty">No ESI escalation has occurred by Hour ${selectedHour}.</p>`;
     return;
   }
   elements.escalationLog.innerHTML = escalationEvents.map((event) => `
@@ -286,57 +286,65 @@ function renderEscalations() {
 
 function setupCanvas(canvas) {
   const rect = canvas.getBoundingClientRect();
+  const cssWidth = Math.max(320, Math.round(rect.width || canvas.clientWidth || canvas.width));
+  const cssHeight = Math.max(260, Math.round(rect.height || canvas.clientHeight || canvas.height));
   const scale = window.devicePixelRatio || 1;
-  canvas.width = Math.max(320, Math.floor(rect.width * scale));
-  canvas.height = Math.max(280, Math.floor(rect.height * scale));
+  canvas.width = cssWidth * scale;
+  canvas.height = cssHeight * scale;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  return { ctx, width: canvas.width / scale, height: canvas.height / scale };
+  return { ctx, width: cssWidth, height: cssHeight };
 }
 
-function drawAxes(ctx, width, height, padding, yMax, xLabels) {
+function drawBase(ctx, width, height, padding, yMax, xLabels, yDigits = 1) {
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = "#071126";
   ctx.fillRect(0, 0, width, height);
-  ctx.strokeStyle = "rgba(185, 194, 223, 0.18)";
+  ctx.strokeStyle = "rgba(185, 194, 223, 0.2)";
   ctx.lineWidth = 1;
   ctx.font = "12px Inter, sans-serif";
-  ctx.fillStyle = "#b9c2df";
+  ctx.fillStyle = "#bac3df";
   for (let i = 0; i <= 5; i += 1) {
-    const value = yMax / 5 * i;
+    const value = yMax * i / 5;
     const y = padding.top + chartHeight - value / yMax * chartHeight;
     ctx.beginPath();
     ctx.moveTo(padding.left, y);
     ctx.lineTo(width - padding.right, y);
     ctx.stroke();
-    ctx.fillText(formatNumber(value, yMax === 1 ? 1 : 0), 10, y + 4);
+    ctx.fillText(formatNumber(value, yDigits), 12, y + 4);
   }
   xLabels.forEach((label, index) => {
     const x = padding.left + (xLabels.length === 1 ? 0.5 : index / (xLabels.length - 1)) * chartWidth;
-    ctx.fillText(label, x - 8, height - 16);
+    ctx.fillText(label, x - 8, height - 18);
   });
   return { chartWidth, chartHeight };
 }
 
 function drawPathwayChart() {
-  const { ctx, width, height } = setupCanvas(elements.pathwayChart);
   const { patients } = currentResult;
-  const padding = { top: 24, right: 22, bottom: 48, left: 46 };
+  const { ctx, width, height } = setupCanvas(elements.pathwayChart);
+  const padding = { top: 42, right: 28, bottom: 62, left: 54 };
   const labels = patients.map((_, index) => String(index + 1));
-  const { chartWidth, chartHeight } = drawAxes(ctx, width, height, padding, 1, labels);
+  const { chartWidth, chartHeight } = drawBase(ctx, width, height, padding, 1, labels, 1);
+
+  if (!patients.length) {
+    ctx.fillStyle = "#bac3df";
+    ctx.font = "16px Inter, sans-serif";
+    ctx.fillText("No patient data to plot.", padding.left, padding.top + 40);
+    return;
+  }
+
   const series = [
-    { name: "ICU", color: PATHWAY_COLORS.ICU, values: patients.map((patient) => patient.lastProbabilities[0] || 0) },
-    { name: "ER", color: PATHWAY_COLORS.ER, values: patients.map((patient) => patient.lastProbabilities[1] || 0) },
-    { name: "Fast Track", color: PATHWAY_COLORS.FAST_TRACK, values: patients.map((patient) => patient.lastProbabilities[2] || 0) }
+    { name: "ICU", color: PATHWAY_COLORS.ICU, values: patients.map((p) => p.lastProbabilities[0] || 0) },
+    { name: "ER", color: PATHWAY_COLORS.ER, values: patients.map((p) => p.lastProbabilities[1] || 0) },
+    { name: "Fast Track", color: PATHWAY_COLORS.FAST_TRACK, values: patients.map((p) => p.lastProbabilities[2] || 0) }
   ];
 
-  ctx.font = "13px Inter, sans-serif";
   series.forEach((item, seriesIndex) => {
     ctx.strokeStyle = item.color;
-    ctx.fillStyle = item.color;
-    ctx.lineWidth = 3.5;
+    ctx.lineWidth = 4;
     ctx.beginPath();
     item.values.forEach((value, index) => {
       const x = padding.left + (patients.length === 1 ? 0.5 : index / (patients.length - 1)) * chartWidth;
@@ -345,39 +353,49 @@ function drawPathwayChart() {
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
+
     item.values.forEach((value, index) => {
       const x = padding.left + (patients.length === 1 ? 0.5 : index / (patients.length - 1)) * chartWidth;
       const y = padding.top + chartHeight - value * chartHeight;
       ctx.beginPath();
-      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.arc(x, y, 8, 0, Math.PI * 2);
       ctx.fillStyle = "#071126";
       ctx.fill();
-      ctx.strokeStyle = item.color;
       ctx.lineWidth = 4;
+      ctx.strokeStyle = item.color;
       ctx.stroke();
     });
+
     ctx.fillStyle = item.color;
-    ctx.fillText(item.name, width / 2 - 120 + seriesIndex * 95, 18);
+    ctx.font = "bold 14px Inter, sans-serif";
+    ctx.fillText(item.name, width / 2 - 130 + seriesIndex * 105, 24);
   });
-  ctx.fillStyle = "#b9c2df";
-  ctx.fillText("Patient Arrival Sequence", width / 2 - 72, height - 4);
+
+  ctx.fillStyle = "#bac3df";
+  ctx.font = "13px Inter, sans-serif";
+  ctx.fillText("Patient Arrival Sequence", width / 2 - 78, height - 18);
+  ctx.save();
+  ctx.translate(18, height / 2 + 60);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("Assignment Probability", 0, 0);
+  ctx.restore();
 }
 
 function drawSeverityChart() {
-  const { ctx, width, height } = setupCanvas(elements.severityChart);
   const { severitySeries } = currentResult;
-  const padding = { top: 24, right: 20, bottom: 48, left: 46 };
+  const { ctx, width, height } = setupCanvas(elements.severityChart);
+  const padding = { top: 36, right: 28, bottom: 58, left: 54 };
   const visibleMaxHour = Math.max(selectedHour, 1);
-  const labels = Array.from({ length: Math.min(7, visibleMaxHour + 1) }, (_, index) => {
-    const hour = Math.round(index * visibleMaxHour / Math.max(1, Math.min(6, visibleMaxHour)));
-    return `H${hour}`;
-  });
-  const { chartWidth, chartHeight } = drawAxes(ctx, width, height, padding, 10, labels);
+  const step = Math.max(1, Math.ceil(visibleMaxHour / 6));
+  const labels = [];
+  for (let h = 0; h <= visibleMaxHour; h += step) labels.push(`H${h}`);
+  if (!labels.includes(`H${visibleMaxHour}`)) labels.push(`H${visibleMaxHour}`);
+  const { chartWidth, chartHeight } = drawBase(ctx, width, height, padding, 10, labels, 0);
 
   [2, 4, 6, 8].forEach((threshold) => {
     const y = padding.top + chartHeight - threshold / 10 * chartHeight;
-    ctx.setLineDash([5, 5]);
-    ctx.strokeStyle = "rgba(255, 209, 102, 0.35)";
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = "rgba(239, 178, 29, 0.38)";
     ctx.beginPath();
     ctx.moveTo(padding.left, y);
     ctx.lineTo(width - padding.right, y);
@@ -388,7 +406,7 @@ function drawSeverityChart() {
   severitySeries.forEach((item) => {
     ctx.strokeStyle = item.color;
     ctx.fillStyle = item.color;
-    ctx.lineWidth = 2.4;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     item.points.forEach((point, index) => {
       const x = padding.left + point.hour / visibleMaxHour * chartWidth;
@@ -411,12 +429,12 @@ function drawSeverityChart() {
 }
 
 function drawQueueChart() {
-  const { ctx, width, height } = setupCanvas(elements.queueChart);
   const { units } = currentResult;
-  const padding = { top: 24, right: 18, bottom: 48, left: 42 };
+  const { ctx, width, height } = setupCanvas(elements.queueChart);
+  const padding = { top: 32, right: 28, bottom: 58, left: 54 };
   const maxWait = Math.max(1, ...units.map((unit) => unit.waitingTime));
-  const { chartWidth, chartHeight } = drawAxes(ctx, width, height, padding, maxWait, units.map((unit) => unit.name));
-  const barWidth = chartWidth / units.length * 0.58;
+  const { chartWidth, chartHeight } = drawBase(ctx, width, height, padding, maxWait, units.map((unit) => unit.name), 1);
+  const barWidth = chartWidth / units.length * 0.5;
   units.forEach((unit, index) => {
     const xCenter = padding.left + chartWidth / units.length * (index + 0.5);
     const barHeight = unit.waitingTime / maxWait * chartHeight;
@@ -428,7 +446,8 @@ function drawQueueChart() {
     ctx.fillStyle = gradient;
     ctx.fillRect(x, y, barWidth, barHeight);
     ctx.fillStyle = "#f7f8ff";
-    ctx.fillText(`${formatNumber(unit.waitingTime)}h`, x + 4, y - 8);
+    ctx.font = "bold 13px Inter, sans-serif";
+    ctx.fillText(`${formatNumber(unit.waitingTime)}h`, x + 6, y - 8);
   });
 }
 
@@ -442,35 +461,35 @@ document.querySelectorAll("input[name='dataSource']").forEach((input) => {
   });
 });
 
-document.getElementById("loadPresetBtn").addEventListener("click", () => {
+$("loadPresetBtn").addEventListener("click", () => {
   sourcePatients = PRESET_PATIENTS.map((patient) => ({ ...patient }));
   setSelectedHour(0);
 });
-document.getElementById("resetBtn").addEventListener("click", () => {
+$("resetBtn").addEventListener("click", () => {
   sourcePatients = PRESET_PATIENTS.map((patient) => ({ ...patient }));
   setSelectedHour(0);
 });
-document.getElementById("clearPatientsBtn").addEventListener("click", () => {
+$("clearPatientsBtn").addEventListener("click", () => {
   sourcePatients = [];
   setSelectedHour(0);
 });
-document.getElementById("patientForm").addEventListener("submit", (event) => {
+$("patientForm").addEventListener("submit", (event) => {
   event.preventDefault();
   sourcePatients.push({
-    age: Number(document.getElementById("ageInput").value),
-    severity: Number(document.getElementById("severityInput").value)
+    age: Number($("ageInput").value),
+    severity: Number($("severityInput").value)
   });
   event.target.reset();
-  document.getElementById("ageInput").value = "40";
-  document.getElementById("severityInput").value = "5.0";
+  $("ageInput").value = "40";
+  $("severityInput").value = "5.0";
   setSelectedHour(selectedHour);
 });
 
 elements.hourSlider.addEventListener("input", (event) => setSelectedHour(event.target.value));
 elements.hourInput.addEventListener("input", (event) => setSelectedHour(event.target.value));
-document.getElementById("previousHourBtn").addEventListener("click", () => setSelectedHour(selectedHour - 1));
-document.getElementById("nextHourBtn").addEventListener("click", () => setSelectedHour(selectedHour + 1));
-window.addEventListener("resize", render);
+$("previousHourBtn").addEventListener("click", () => setSelectedHour(selectedHour - 1));
+$("nextHourBtn").addEventListener("click", () => setSelectedHour(selectedHour + 1));
+window.addEventListener("resize", () => render());
 
 currentResult = simulateToHour(selectedHour);
 syncTimeControls();

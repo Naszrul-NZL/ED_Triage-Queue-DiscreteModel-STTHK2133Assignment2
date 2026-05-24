@@ -1,6 +1,6 @@
-# Emergency Department Triage Time Explorer
+# ED Triage Time Explorer
 
-Static GitHub Pages web app for the STTHK2133 ED triage assignment.
+Static GitHub Pages application for the STTHK2133 Emergency Department triage simulation.
 
 ## Files
 
@@ -8,22 +8,13 @@ Static GitHub Pages web app for the STTHK2133 ED triage assignment.
 - `styles.css`
 - `script.js`
 
-## Main Features
+## Features
 
-- Preset data and custom patient input
-- Anonymous patient labels
-- Uncapped hour input, so users can inspect Hour 100 or beyond
-- Current patient state at selected hour
-- Unit queue state using `Wq = n / mu`
+- Preset or custom anonymous patient data
+- Uncapped hour input
+- Current patient state by selected hour
+- Unit queue state
+- Pathway selection probability graph
 - Severity trend graph
 - Queue waiting chart
-- Pathway selection probability chart similar to the Octave-style output
-
-## Model
-
-- `U = (0.6S - 0.4W) - 0.5(n/C)`
-- `P = exp(U) / sum exp(U)`
-- `S(t) = S0 + 0.1t`
-- ICU: capacity 2, service rate 1
-- ER: capacity 3, service rate 3
-- Fast Track: capacity 4, service rate 6
+- ESI escalation log
