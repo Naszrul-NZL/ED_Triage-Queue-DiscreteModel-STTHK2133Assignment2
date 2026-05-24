@@ -21,60 +21,46 @@ const PRESET_PATIENTS = [
   { age: 41, severity: 4.3 }
 ];
 
-let patients = [];
-let units = [];
-let currentTime = 0;
-let history = [];
-let escalationEvents = [];
-let dataSource = "preset";
+const CHART_COLORS = [
+  "#37d5ff",
+  "#9d6dff",
+  "#ef5ccc",
+  "#52e0a4",
+  "#ffd166",
+  "#ff6d8d",
+  "#7aa2ff",
+  "#c891ff",
+  "#5df2d6",
+  "#f7a35c"
+];
+
+let sourcePatients = PRESET_PATIENTS.map((patient) => ({ ...patient }));
+let selectedHour = 0;
+let maxHour = 24;
+let currentResult = null;
 
 const elements = {
-  currentTick: document.getElementById("currentTick"),
+  currentHourLabel: document.getElementById("currentHourLabel"),
+  selectedHourBig: document.getElementById("selectedHourBig"),
+  hourSlider: document.getElementById("hourSlider"),
+  hourInput: document.getElementById("hourInput"),
+  sliderRangeLabel: document.getElementById("sliderRangeLabel"),
   totalPatients: document.getElementById("totalPatients"),
   averageSeverity: document.getElementById("averageSeverity"),
   totalEscalations: document.getElementById("totalEscalations"),
   highestRiskPatient: document.getElementById("highestRiskPatient"),
-  currentPatientBody: document.getElementById("currentPatientBody"),
+  patientTableBody: document.getElementById("patientTableBody"),
   unitQueueList: document.getElementById("unitQueueList"),
-  historyBody: document.getElementById("historyBody"),
   escalationLog: document.getElementById("escalationLog"),
-  presetControls: document.getElementById("presetControls"),
-  patientForm: document.getElementById("patientForm")
+  chartLegend: document.getElementById("chartLegend"),
+  severityChart: document.getElementById("severityChart"),
+  queueChart: document.getElementById("queueChart"),
+  patientForm: document.getElementById("patientForm"),
+  presetControls: document.getElementById("presetControls")
 };
 
-function makePatient(data, index) {
-  const severity = clamp(Number(data.severity), 0, 10);
-  const initialEsi = mapSeverityToEsi(severity);
-
-  return {
-    id: `P${String(index + 1).padStart(3, "0")}`,
-    label: `Patient ${index + 1}`,
-    age: Number(data.age),
-    arrivalTime: 0,
-    severityInitial: severity,
-    currentSeverity: severity,
-    initialEsi,
-    currentEsi: initialEsi,
-    assignedUnit: "",
-    waitTime: 0,
-    status: "WAITING",
-    note: "Stable - no change",
-    lastUtilities: [],
-    lastProbabilities: []
-  };
-}
-
-function makeUnits() {
-  return UNIT_TEMPLATE.map((unit) => ({
-    ...unit,
-    occupancy: 0,
-    waitingTime: 0,
-    patientIds: []
-  }));
-}
-
 function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
+  return Math.min(Math.max(Number(value), min), max);
 }
 
 function formatNumber(value, digits = 2) {
@@ -95,11 +81,39 @@ function getEsiClass(esi) {
   return "minor";
 }
 
-function getUnit(unitId) {
-  return units.find((unit) => unit.id === unitId);
+function makePatient(data, index) {
+  const severity = clamp(data.severity, 0, 10);
+  const initialEsi = mapSeverityToEsi(severity);
+
+  return {
+    id: `P${String(index + 1).padStart(3, "0")}`,
+    label: `Patient ${index + 1}`,
+    age: Number(data.age),
+    arrivalTime: 0,
+    severityInitial: severity,
+    currentSeverity: severity,
+    initialEsi,
+    currentEsi: initialEsi,
+    assignedUnit: "",
+    waitTime: 0,
+    status: "WAITING",
+    note: "Stable - no change",
+    lastEscalationHour: null,
+    lastUtilities: [],
+    lastProbabilities: []
+  };
 }
 
-function updateUnitWaitingTimes() {
+function makeUnits() {
+  return UNIT_TEMPLATE.map((unit) => ({
+    ...unit,
+    occupancy: 0,
+    waitingTime: 0,
+    patientIds: []
+  }));
+}
+
+function updateUnitWaitingTimes(units) {
   units.forEach((unit) => {
     unit.occupancy = unit.patientIds.length;
     unit.waitingTime = unit.occupancy / unit.serviceRate;
@@ -120,7 +134,7 @@ function softmax(values) {
   return exponentials.map((value) => value / total);
 }
 
-function chooseUnit(patient) {
+function chooseUnit(patient, units) {
   const utilities = units.map((unit) => computeUtility(patient, unit));
   const probabilities = softmax(utilities);
   const bestIndex = probabilities.indexOf(Math.max(...probabilities));
@@ -131,127 +145,130 @@ function chooseUnit(patient) {
   return units[bestIndex].id;
 }
 
-function assignPatient(patient, unitId) {
+function getUnit(units, unitId) {
+  return units.find((unit) => unit.id === unitId);
+}
+
+function assignPatient(patient, unitId, units) {
   if (patient.assignedUnit) {
-    const oldUnit = getUnit(patient.assignedUnit);
+    const oldUnit = getUnit(units, patient.assignedUnit);
     oldUnit.patientIds = oldUnit.patientIds.filter((id) => id !== patient.id);
   }
 
-  const newUnit = getUnit(unitId);
+  const newUnit = getUnit(units, unitId);
   newUnit.patientIds.push(patient.id);
   patient.assignedUnit = unitId;
-  updateUnitWaitingTimes();
+  updateUnitWaitingTimes(units);
 }
 
-function initializeSimulation(sourcePatients = PRESET_PATIENTS) {
-  units = makeUnits();
-  currentTime = 0;
-  history = [];
-  escalationEvents = [];
-  patients = sourcePatients.map(makePatient);
-
-  patients.forEach((patient) => {
-    const unitId = chooseUnit(patient);
-    assignPatient(patient, unitId);
-  });
-
-  patients.forEach((patient) => {
-    patient.waitTime = 0;
-    patient.currentSeverity = patient.severityInitial;
-    patient.currentEsi = patient.initialEsi;
-    patient.note = "Stable - no change";
-  });
-
-  logCurrentState();
-  render();
-}
-
-function restartCurrentSimulation() {
-  const sourcePatients = patients.map((patient) => ({
-    age: patient.age,
-    severity: patient.severityInitial
-  }));
-
-  initializeSimulation(sourcePatients.length ? sourcePatients : PRESET_PATIENTS);
-}
-
-function advanceOneHour() {
-  if (!patients.length) return;
-
-  currentTime += 1;
-
-  patients.forEach((patient) => {
-    if (patient.status !== "WAITING") return;
-
-    const previousEsi = patient.currentEsi;
-    const previousUnit = patient.assignedUnit;
-
-    patient.waitTime += 1;
-    patient.currentSeverity = clamp(
-      patient.severityInitial + MODEL.delta * patient.waitTime,
-      0,
-      10
-    );
-    patient.currentEsi = mapSeverityToEsi(patient.currentSeverity);
-    patient.note = "Stable - no change";
-
-    if (patient.currentEsi !== previousEsi) {
-      const newUnitId = chooseUnit(patient);
-      if (newUnitId !== previousUnit) {
-        assignPatient(patient, newUnitId);
-        patient.note = `ESCALATED ESI ${previousEsi} -> ${patient.currentEsi}; reassigned to ${getUnit(newUnitId).name}`;
-      } else {
-        patient.note = `ESCALATED ESI ${previousEsi} -> ${patient.currentEsi}; unit unchanged`;
-      }
-
-      escalationEvents.push({
-        time: currentTime,
-        patient: patient.label,
-        oldEsi: previousEsi,
-        newEsi: patient.currentEsi,
-        severity: patient.currentSeverity,
-        action: patient.note
-      });
-    }
-  });
-
-  updateUnitWaitingTimes();
-  logCurrentState();
-  render();
-}
-
-function runHours(hours) {
-  for (let i = 0; i < hours; i += 1) {
-    advanceOneHour();
-  }
-}
-
-function logCurrentState() {
-  patients.forEach((patient) => {
-    const unit = getUnit(patient.assignedUnit);
-    history.push({
-      time: currentTime,
-      patient: patient.label,
-      severityInitial: patient.severityInitial,
-      currentSeverity: patient.currentSeverity,
-      esi: patient.currentEsi,
-      unit: unit.name,
-      waitingTime: unit.waitingTime,
-      note: patient.note
+function captureSeriesPoint(series, patients, hour) {
+  patients.forEach((patient, index) => {
+    series[index].points.push({
+      hour,
+      severity: patient.currentSeverity,
+      esi: patient.currentEsi
     });
   });
 }
 
+function simulateToHour(targetHour) {
+  const units = makeUnits();
+  const patients = sourcePatients.map(makePatient);
+  const escalationEvents = [];
+  const series = patients.map((patient, index) => ({
+    patient: patient.label,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    points: []
+  }));
+
+  patients.forEach((patient) => {
+    const unitId = chooseUnit(patient, units);
+    assignPatient(patient, unitId, units);
+  });
+
+  captureSeriesPoint(series, patients, 0);
+
+  for (let hour = 1; hour <= targetHour; hour += 1) {
+    patients.forEach((patient) => {
+      if (patient.status !== "WAITING") return;
+
+      const previousEsi = patient.currentEsi;
+      const previousUnit = patient.assignedUnit;
+
+      patient.waitTime += 1;
+      patient.currentSeverity = clamp(
+        patient.severityInitial + MODEL.delta * patient.waitTime,
+        0,
+        10
+      );
+      patient.currentEsi = mapSeverityToEsi(patient.currentSeverity);
+      patient.note = "Stable - no change";
+
+      if (patient.currentEsi !== previousEsi) {
+        const newUnitId = chooseUnit(patient, units);
+        patient.lastEscalationHour = hour;
+
+        if (newUnitId !== previousUnit) {
+          assignPatient(patient, newUnitId, units);
+          patient.note = `Escalated at Hour ${hour}: ESI ${previousEsi} to ${patient.currentEsi}, reassigned to ${getUnit(units, newUnitId).name}`;
+        } else {
+          patient.note = `Escalated at Hour ${hour}: ESI ${previousEsi} to ${patient.currentEsi}, unit unchanged`;
+        }
+
+        escalationEvents.push({
+          hour,
+          patient: patient.label,
+          oldEsi: previousEsi,
+          newEsi: patient.currentEsi,
+          severity: patient.currentSeverity,
+          action: patient.note
+        });
+      }
+    });
+
+    updateUnitWaitingTimes(units);
+    captureSeriesPoint(series, patients, hour);
+  }
+
+  patients.forEach((patient) => {
+    if (patient.lastEscalationHour && !patient.note.startsWith("Escalated at Hour")) {
+      patient.note = `Escalated earlier at Hour ${patient.lastEscalationHour}`;
+    }
+  });
+
+  return { hour: targetHour, patients, units, escalationEvents, series };
+}
+
+function syncTimeControls() {
+  elements.currentHourLabel.textContent = `Hour ${selectedHour}`;
+  elements.selectedHourBig.textContent = selectedHour;
+  elements.hourSlider.max = maxHour;
+  elements.hourSlider.value = selectedHour;
+  elements.hourInput.value = selectedHour;
+  elements.sliderRangeLabel.textContent = `0-${maxHour}`;
+}
+
+function setSelectedHour(hour) {
+  selectedHour = Math.max(0, Math.round(Number(hour) || 0));
+  if (selectedHour > maxHour) {
+    maxHour = selectedHour;
+  }
+  currentResult = simulateToHour(selectedHour);
+  syncTimeControls();
+  render();
+}
+
 function render() {
-  elements.currentTick.textContent = `t = ${currentTime}`;
   renderMetrics();
   renderPatients();
   renderUnits();
-  renderHistory();
   renderEscalations();
+  drawSeverityChart();
+  drawQueueChart();
 }
 
 function renderMetrics() {
+  const { patients, escalationEvents } = currentResult;
   const totalSeverity = patients.reduce((sum, patient) => sum + patient.currentSeverity, 0);
   const averageSeverity = patients.length ? totalSeverity / patients.length : 0;
   const highestRisk = patients.reduce((highest, patient) => (
@@ -265,14 +282,16 @@ function renderMetrics() {
 }
 
 function renderPatients() {
+  const { patients, units } = currentResult;
+
   if (!patients.length) {
-    elements.currentPatientBody.innerHTML = `<tr><td colspan="10" class="empty-state">No patient records yet.</td></tr>`;
+    elements.patientTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">No patient records yet.</td></tr>`;
     return;
   }
 
-  elements.currentPatientBody.innerHTML = patients.map((patient) => {
-    const unit = getUnit(patient.assignedUnit);
-    const escalated = patient.note.startsWith("ESCALATED");
+  elements.patientTableBody.innerHTML = patients.map((patient) => {
+    const unit = getUnit(units, patient.assignedUnit);
+    const escalated = patient.note.startsWith("Escalated");
 
     return `
       <tr class="${escalated ? "highlight-row" : ""}">
@@ -292,6 +311,8 @@ function renderPatients() {
 }
 
 function renderUnits() {
+  const { units, patients } = currentResult;
+
   elements.unitQueueList.innerHTML = units.map((unit) => {
     const capacityPercent = Math.min((unit.occupancy / unit.capacity) * 100, 100);
     const patientLabels = unit.patientIds
@@ -304,19 +325,19 @@ function renderUnits() {
         <h3>${unit.name}</h3>
         <div class="unit-metrics">
           <div>
-            <span>n_j</span>
+            <span>n</span>
             <strong>${unit.occupancy}</strong>
           </div>
           <div>
-            <span>Capacity C_j</span>
+            <span>Capacity</span>
             <strong>${unit.capacity}</strong>
           </div>
           <div>
-            <span>mu_j</span>
+            <span>mu</span>
             <strong>${unit.serviceRate} pt/hr</strong>
           </div>
           <div>
-            <span>Wq = n_j / mu_j</span>
+            <span>Wq</span>
             <strong>${formatNumber(unit.waitingTime)} hr</strong>
           </div>
         </div>
@@ -329,29 +350,11 @@ function renderUnits() {
   }).join("");
 }
 
-function renderHistory() {
-  if (!history.length) {
-    elements.historyBody.innerHTML = `<tr><td colspan="8" class="empty-state">No hourly records yet.</td></tr>`;
-    return;
-  }
-
-  elements.historyBody.innerHTML = history.map((row) => `
-    <tr class="${row.note.startsWith("ESCALATED") ? "highlight-row" : ""}">
-      <td>t = ${row.time}</td>
-      <td><strong>${row.patient}</strong></td>
-      <td>${formatNumber(row.severityInitial)}</td>
-      <td>${formatNumber(row.currentSeverity)}</td>
-      <td><span class="badge ${getEsiClass(row.esi)}">ESI ${row.esi}</span></td>
-      <td>${row.unit}</td>
-      <td>${formatNumber(row.waitingTime)} hr</td>
-      <td>${row.note}</td>
-    </tr>
-  `).join("");
-}
-
 function renderEscalations() {
+  const { escalationEvents } = currentResult;
+
   if (!escalationEvents.length) {
-    elements.escalationLog.innerHTML = `<p class="empty-state">No ESI escalation has occurred yet.</p>`;
+    elements.escalationLog.innerHTML = `<p class="empty-state">No ESI escalation has occurred by Hour ${selectedHour}.</p>`;
     return;
   }
 
@@ -359,9 +362,9 @@ function renderEscalations() {
     <article class="log-card">
       <h3>${event.patient}</h3>
       <span>Hour</span>
-      <strong>t = ${event.time}</strong>
+      <strong>Hour ${event.hour}</strong>
       <span>Change</span>
-      <strong>ESI ${event.oldEsi} -> ESI ${event.newEsi}</strong>
+      <strong>ESI ${event.oldEsi} to ESI ${event.newEsi}</strong>
       <span>Severity</span>
       <strong>${formatNumber(event.severity)}</strong>
       <span>Action</span>
@@ -370,67 +373,204 @@ function renderEscalations() {
   `).join("");
 }
 
+function setupCanvas(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const scale = window.devicePixelRatio || 1;
+  canvas.width = Math.max(320, Math.floor(rect.width * scale));
+  canvas.height = Math.max(260, Math.floor(rect.height * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  return { ctx, width: canvas.width / scale, height: canvas.height / scale };
+}
+
+function drawSeverityChart() {
+  const { ctx, width, height } = setupCanvas(elements.severityChart);
+  const { series } = currentResult;
+  const padding = { top: 22, right: 18, bottom: 42, left: 46 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const visibleMaxHour = Math.max(selectedHour, 1);
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#071126";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = "rgba(185, 194, 223, 0.18)";
+  ctx.lineWidth = 1;
+  ctx.font = "12px Inter, sans-serif";
+  ctx.fillStyle = "#b9c2df";
+
+  for (let severity = 0; severity <= 10; severity += 2) {
+    const y = padding.top + chartHeight - (severity / 10) * chartHeight;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+    ctx.fillText(String(severity), 12, y + 4);
+  }
+
+  for (let hour = 0; hour <= visibleMaxHour; hour += Math.max(1, Math.ceil(visibleMaxHour / 6))) {
+    const x = padding.left + (hour / visibleMaxHour) * chartWidth;
+    ctx.fillText(`H${hour}`, x - 8, height - 16);
+  }
+
+  const thresholds = [
+    { y: 2, label: "ESI 4" },
+    { y: 4, label: "ESI 3" },
+    { y: 6, label: "ESI 2-3" },
+    { y: 8, label: "ESI 1-2" }
+  ];
+
+  thresholds.forEach((threshold) => {
+    const y = padding.top + chartHeight - (threshold.y / 10) * chartHeight;
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(255, 209, 102, 0.35)";
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#ffd166";
+    ctx.fillText(threshold.label, width - padding.right - 58, y - 5);
+  });
+
+  series.forEach((item) => {
+    ctx.strokeStyle = item.color;
+    ctx.fillStyle = item.color;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+
+    item.points.forEach((point, index) => {
+      const x = padding.left + (point.hour / visibleMaxHour) * chartWidth;
+      const y = padding.top + chartHeight - (point.severity / 10) * chartHeight;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+
+    ctx.stroke();
+
+    const lastPoint = item.points[item.points.length - 1];
+    const lastX = padding.left + (lastPoint.hour / visibleMaxHour) * chartWidth;
+    const lastY = padding.top + chartHeight - (lastPoint.severity / 10) * chartHeight;
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  elements.chartLegend.innerHTML = series.map((item) => `
+    <span class="legend-item">
+      <span class="legend-dot" style="background:${item.color}"></span>
+      ${item.patient}
+    </span>
+  `).join("");
+}
+
+function drawQueueChart() {
+  const { ctx, width, height } = setupCanvas(elements.queueChart);
+  const { units } = currentResult;
+  const padding = { top: 24, right: 18, bottom: 48, left: 42 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const maxWait = Math.max(1, ...units.map((unit) => unit.waitingTime));
+  const barWidth = chartWidth / units.length * 0.58;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#071126";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = "rgba(185, 194, 223, 0.18)";
+  ctx.fillStyle = "#b9c2df";
+  ctx.font = "12px Inter, sans-serif";
+
+  for (let i = 0; i <= 4; i += 1) {
+    const value = (maxWait / 4) * i;
+    const y = padding.top + chartHeight - (value / maxWait) * chartHeight;
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+    ctx.fillText(formatNumber(value, 1), 8, y + 4);
+  }
+
+  units.forEach((unit, index) => {
+    const xCenter = padding.left + chartWidth / units.length * (index + 0.5);
+    const barHeight = (unit.waitingTime / maxWait) * chartHeight;
+    const x = xCenter - barWidth / 2;
+    const y = padding.top + chartHeight - barHeight;
+
+    const gradient = ctx.createLinearGradient(0, y, 0, padding.top + chartHeight);
+    gradient.addColorStop(0, "#37d5ff");
+    gradient.addColorStop(1, "#9d6dff");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x, y, barWidth, barHeight);
+
+    ctx.fillStyle = "#f7f8ff";
+    ctx.fillText(`${formatNumber(unit.waitingTime)}h`, x + 4, y - 8);
+    ctx.fillStyle = "#b9c2df";
+    ctx.fillText(unit.name, xCenter - 28, height - 18);
+  });
+}
+
 document.querySelectorAll("input[name='dataSource']").forEach((input) => {
   input.addEventListener("change", (event) => {
-    dataSource = event.target.value;
-    const customMode = dataSource === "custom";
+    const customMode = event.target.value === "custom";
     elements.patientForm.classList.toggle("hidden", !customMode);
     elements.presetControls.classList.toggle("hidden", customMode);
 
-    if (customMode) {
-      patients = [];
-      units = makeUnits();
-      currentTime = 0;
-      history = [];
-      escalationEvents = [];
-      render();
-    } else {
-      initializeSimulation(PRESET_PATIENTS);
-    }
+    sourcePatients = customMode ? [] : PRESET_PATIENTS.map((patient) => ({ ...patient }));
+    setSelectedHour(0);
   });
 });
 
 document.getElementById("loadPresetBtn").addEventListener("click", () => {
-  dataSource = "preset";
-  initializeSimulation(PRESET_PATIENTS);
+  sourcePatients = PRESET_PATIENTS.map((patient) => ({ ...patient }));
+  setSelectedHour(0);
 });
 
 document.getElementById("resetBtn").addEventListener("click", () => {
-  initializeSimulation(PRESET_PATIENTS);
+  sourcePatients = PRESET_PATIENTS.map((patient) => ({ ...patient }));
+  setSelectedHour(0);
 });
 
-document.getElementById("restartBtn").addEventListener("click", restartCurrentSimulation);
-
-document.getElementById("nextTickBtn").addEventListener("click", advanceOneHour);
-
-document.getElementById("runFiveBtn").addEventListener("click", () => runHours(5));
-
 document.getElementById("clearPatientsBtn").addEventListener("click", () => {
-  patients = [];
-  units = makeUnits();
-  currentTime = 0;
-  history = [];
-  escalationEvents = [];
-  render();
+  sourcePatients = [];
+  setSelectedHour(0);
 });
 
 document.getElementById("patientForm").addEventListener("submit", (event) => {
   event.preventDefault();
-
-  const newSource = patients.map((patient) => ({
-    age: patient.age,
-    severity: patient.severityInitial
-  }));
-
-  newSource.push({
-    age: document.getElementById("ageInput").value,
-    severity: document.getElementById("severityInput").value
+  sourcePatients.push({
+    age: Number(document.getElementById("ageInput").value),
+    severity: Number(document.getElementById("severityInput").value)
   });
-
-  initializeSimulation(newSource);
   event.target.reset();
   document.getElementById("ageInput").value = "40";
   document.getElementById("severityInput").value = "5.0";
+  setSelectedHour(selectedHour);
 });
 
-initializeSimulation(PRESET_PATIENTS);
+elements.hourSlider.addEventListener("input", (event) => {
+  setSelectedHour(event.target.value);
+});
+
+elements.hourInput.addEventListener("input", (event) => {
+  setSelectedHour(event.target.value);
+});
+
+document.getElementById("previousHourBtn").addEventListener("click", () => {
+  setSelectedHour(selectedHour - 1);
+});
+
+document.getElementById("nextHourBtn").addEventListener("click", () => {
+  setSelectedHour(selectedHour + 1);
+});
+
+window.addEventListener("resize", () => {
+  drawSeverityChart();
+  drawQueueChart();
+});
+
+currentResult = simulateToHour(selectedHour);
+syncTimeControls();
+render();
